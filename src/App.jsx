@@ -81,7 +81,7 @@ export default function App() {
       setNetwork(network);
 
       // Periksa apakah jaringan Plasma
-      if (network.chainId !== 707070n) { // Ganti dengan chain ID Plasma yang benar
+      if (network.chainId !== 9745) { // Ganti dengan chain ID Plasma yang benar
         alert("Silakan hubungkan ke jaringan Plasma Chain");
       }
 
