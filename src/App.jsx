@@ -70,6 +70,7 @@ export default function App() {
   const [amount, setAmount] = useState("");
   const [newMemberAddress, setNewMemberAddress] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
+  const [withdrawAmount, setWithdrawAmount] = useState(""); // State untuk emergency withdraw
   const [isOwner, setIsOwner] = useState(false);
   const [usdtDecimals, setUsdtDecimals] = useState(6);
   const [searchTerm, setSearchTerm] = useState("");
@@ -360,6 +361,7 @@ export default function App() {
       const depositFilter = contract.filters.Deposit(account);
       const loanFilter = contract.filters.Loan(account);
       const installmentFilter = contract.filters.Installment(account);
+      const emergencyWithdrawFilter = contract.filters.EmergencyWithdraw();
 
       contract.on(depositFilter, (user, amount, fee, event) => {
         console.log("🎉 [EVENT] Deposit detected:", {
@@ -390,12 +392,22 @@ export default function App() {
         });
         loadData();
       });
+      
+      contract.on(emergencyWithdrawFilter, (owner, amount, event) => {
+        console.log("🎉 [EVENT] Emergency Withdraw detected:", {
+          owner,
+          amount: amount.toString(),
+          blockNumber: event.log.blockNumber
+        });
+        loadData();
+      });
 
       return () => {
         console.log("🔇 [EFFECT] Cleaning up event listeners...");
         contract.off(depositFilter, loadData);
         contract.off(loanFilter, loadData);
         contract.off(installmentFilter, loadData);
+        contract.off(emergencyWithdrawFilter, loadData);
       };
     }
   }, [contract, account]);
@@ -744,6 +756,106 @@ export default function App() {
     }
   }
 
+  /* ================= EMERGENCY WITHDRAW FUNCTION ================= */
+
+  async function emergencyWithdraw() {
+    if (!contract) {
+      console.error("❌ [EMERGENCY_WITHDRAW] Missing contract");
+      return;
+    }
+    
+    console.log("⚠️ [EMERGENCY_WITHDRAW] Starting emergency withdraw...");
+    
+    try {
+      setLoading(true);
+      setTxHash("");
+      
+      let value;
+      let amountToWithdraw = "";
+      
+      if (withdrawAmount && withdrawAmount.trim() !== "") {
+        // Withdraw jumlah tertentu
+        value = ethers.parseUnits(withdrawAmount, usdtDecimals);
+        amountToWithdraw = withdrawAmount;
+        console.log("⚠️ [EMERGENCY_WITHDRAW] Withdrawing specific amount:", withdrawAmount, "USDT");
+        
+        // Konfirmasi jumlah tertentu
+        const confirmWithdraw = window.confirm(
+          `⚠️ PERINGATAN!\n\nAnda akan menarik ${withdrawAmount} USDT dari dana komunitas ke wallet owner.\n\nTotal Dana Komunitas: ${totalFund} USDT\n\nApakah Anda yakin?`
+        );
+        
+        if (!confirmWithdraw) {
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Withdraw semua dana
+        console.log("⚠️ [EMERGENCY_WITHDRAW] Withdrawing ALL funds");
+        
+        // Dapatkan total fund dari contract
+        const totalFundRaw = await contract.totalFund();
+        const totalFundFormatted = ethers.formatUnits(totalFundRaw, usdtDecimals);
+        
+        if (parseFloat(totalFundFormatted) === 0) {
+          alert("❌ Tidak ada dana yang bisa ditarik!");
+          setLoading(false);
+          return;
+        }
+        
+        // Konfirmasi sebelum withdraw semua
+        const confirmWithdraw = window.confirm(
+          `⚠️ PERINGATAN KRITIS!\n\nAnda akan menarik SELURUH dana komunitas:\n${totalFundFormatted} USDT\n\nTindakan ini tidak dapat dibatalkan!\n\nApakah Anda benar-benar yakin?`
+        );
+        
+        if (!confirmWithdraw) {
+          setLoading(false);
+          return;
+        }
+        
+        value = totalFundRaw;
+        amountToWithdraw = totalFundFormatted;
+        console.log("⚠️ [EMERGENCY_WITHDRAW] Withdrawing all funds:", totalFundFormatted, "USDT");
+      }
+      
+      console.log("⚠️ [EMERGENCY_WITHDRAW] Value to withdraw (raw):", value.toString());
+      
+      console.log("⚠️ [EMERGENCY_WITHDRAW] Sending transaction...");
+      const tx = await contract.emergencyWithdraw(value);
+      console.log("⚠️ [EMERGENCY_WITHDRAW] Transaction sent, hash:", tx.hash);
+      setTxHash(tx.hash);
+      
+      alert("⏳ Emergency withdraw sedang diproses... Harap tunggu konfirmasi.");
+      console.log("⏳ [EMERGENCY_WITHDRAW] Waiting for confirmation...");
+      await tx.wait();
+      console.log("✅ [EMERGENCY_WITHDRAW] Transaction confirmed!");
+      
+      alert(`✅ Emergency withdraw berhasil!\n${amountToWithdraw} USDT telah ditarik ke wallet owner.`);
+      
+      // Reset input dan refresh data
+      setWithdrawAmount("");
+      loadData();
+      setLoading(false);
+      
+    } catch (error) {
+      console.error("❌ [EMERGENCY_WITHDRAW] Error:", error);
+      
+      // Pesan error khusus
+      if (error.message.includes("Only owner")) {
+        alert("❌ Hanya owner yang bisa menggunakan fungsi ini!");
+      } else if (error.message.includes("Insufficient contract balance")) {
+        alert("❌ Saldo kontrak tidak cukup!");
+      } else if (error.message.includes("Amount exceeds total fund")) {
+        alert("❌ Jumlah melebihi total dana komunitas!");
+      } else if (error.message.includes("user rejected transaction")) {
+        alert("❌ Transaksi ditolak oleh user!");
+      } else {
+        alert("❌ Gagal emergency withdraw: " + error.message);
+      }
+      
+      setLoading(false);
+    }
+  }
+
   /* ================= UI ================= */
 
   return (
@@ -807,6 +919,95 @@ export default function App() {
             <p style={{ color: "#64748b", fontSize: "0.9rem", marginTop: 5 }}>
               Saldo Kontrak: {contractBalance} USDT
             </p>
+          </div>
+        )}
+
+        {/* EMERGENCY WITHDRAW SECTION - Only for Owner */}
+        {isOwner && (
+          <div className="card" style={{ 
+            border: "2px solid #ef4444", 
+            backgroundColor: "rgba(239, 68, 68, 0.05)",
+            marginBottom: 30
+          }}>
+            <div style={{ 
+              display: "flex", 
+              alignItems: "center", 
+              gap: 10, 
+              marginBottom: 20,
+              color: "#ef4444" 
+            }}>
+              <div style={{ fontSize: "24px" }}>⚠️</div>
+              <h3 style={{ margin: 0, color: "#ef4444" }}>Emergency Withdraw (Owner Only)</h3>
+            </div>
+            
+            <div style={{ 
+              backgroundColor: "rgba(239, 68, 68, 0.1)", 
+              padding: 20, 
+              borderRadius: 10,
+              marginBottom: 20,
+              border: "1px solid rgba(239, 68, 68, 0.3)"
+            }}>
+              <div style={{ marginBottom: 15 }}>
+                <p style={{ color: "#ef4444", fontWeight: "bold", fontSize: "14px" }}>
+                  ⚠️ PERINGATAN: Hanya gunakan fungsi ini dalam keadaan darurat!
+                </p>
+                <p style={{ color: "#94a3b8", fontSize: "13px", marginTop: 5 }}>
+                  Fungsi ini akan menarik dana dari kontrak ke wallet owner. 
+                  <br/>Total Dana Komunitas saat ini: <span style={{ color: "#10b981", fontWeight: "bold" }}>{totalFund} USDT</span>
+                </p>
+              </div>
+              
+              <div className="input-group">
+                <label className="input-label" style={{ color: "#ef4444" }}>
+                  Jumlah USDT untuk ditarik (kosongkan untuk menarik semua)
+                </label>
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder={`Contoh: 100 atau kosongkan untuk ${totalFund} USDT`}
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  style={{ 
+                    borderColor: "#ef4444",
+                    backgroundColor: "rgba(239, 68, 68, 0.05)"
+                  }}
+                />
+                <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: 5 }}>
+                  Biarkan kosong untuk menarik semua dana ({totalFund} USDT)
+                </div>
+              </div>
+              
+              <button 
+                onClick={emergencyWithdraw} 
+                className="btn btn-danger"
+                disabled={loading || parseFloat(totalFund) === 0}
+                style={{ 
+                  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                  width: "100%",
+                  marginTop: 15,
+                  padding: "12px 24px",
+                  fontSize: "16px",
+                  fontWeight: "bold"
+                }}
+              >
+                {loading ? "⏳ Processing..." : "⚠️ Emergency Withdraw to Owner"}
+              </button>
+              
+              {withdrawAmount && (
+                <div style={{ 
+                  marginTop: 15, 
+                  padding: 10, 
+                  backgroundColor: "rgba(239, 68, 68, 0.1)", 
+                  borderRadius: 8,
+                  fontSize: "14px",
+                  color: "#ef4444"
+                }}>
+                  <b>Withdraw Amount:</b> {withdrawAmount} USDT
+                  <br/>
+                  <b>Remaining after withdraw:</b> {(parseFloat(totalFund) - parseFloat(withdrawAmount || 0)).toFixed(6)} USDT
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -919,6 +1120,7 @@ export default function App() {
         {isOwner && (
           <div className="card admin-card">
             <h3>👑 Admin Functions</h3>
+            
             <div style={{ display: "grid", gap: 15 }}>
               <div className="input-group">
                 <label className="input-label">Alamat Member Baru</label>
