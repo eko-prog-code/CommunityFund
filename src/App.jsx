@@ -4,10 +4,9 @@ import './App.css';
 
 /* ================= CONFIG - PLASMA MAINNET ================= */
 
-const CONTRACT_ADDRESS = "0x4204fc8a5d9088427E7eD93CEfbb347ab868d81E"; // Ganti dengan alamat contract Anda
-const USDT_ADDRESS = "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb"; // USDT Plasma Native
+const CONTRACT_ADDRESS = "0x4204fc8a5d9088427E7eD93CEfbb347ab868d81E";
+const USDT_ADDRESS = "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb";
 
-// Plasma Mainnet Beta Configuration
 const PLASMA_CHAIN_ID = 9745;
 const PLASMA_RPC_URL = "https://rpc.plasma.to";
 const PLASMA_EXPLORER = "https://plasmascan.to";
@@ -47,6 +46,40 @@ const ERC20_ABI = [
   "function totalSupply() view returns(uint256)"
 ];
 
+/* ================= MODAL COMPONENT ================= */
+
+function ConfirmationModal({ isOpen, onClose, onConfirm, title, message, amount, loading }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <button onClick={onClose} className="modal-close-btn">×</button>
+        </div>
+        <div className="modal-body">
+          <p>{message}</p>
+          {amount && (
+            <div className="amount-display">
+              <span>Jumlah: </span>
+              <span className="amount-value">{amount} USDT</span>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button onClick={onClose} className="btn btn-secondary" disabled={loading}>
+            Batal
+          </button>
+          <button onClick={onConfirm} className="btn btn-primary" disabled={loading}>
+            {loading ? "⏳ Processing..." : "Konfirmasi Bayar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ================= APP ================= */
 
 export default function App() {
@@ -54,10 +87,8 @@ export default function App() {
   const [signer, setSigner] = useState(null);
   const [account, setAccount] = useState("");
   const [network, setNetwork] = useState(null);
-
   const [contract, setContract] = useState(null);
   const [usdtContract, setUsdtContract] = useState(null);
-
   const [members, setMembers] = useState([]);
   const [filteredMembers, setFilteredMembers] = useState([]);
   const [totalFund, setTotalFund] = useState("0");
@@ -66,16 +97,22 @@ export default function App() {
   const [usdtAllowance, setUsdtAllowance] = useState("0");
   const [userMaxLoan, setUserMaxLoan] = useState("0");
   const [userMemberInfo, setUserMemberInfo] = useState(null);
-
   const [amount, setAmount] = useState("");
   const [newMemberAddress, setNewMemberAddress] = useState("");
   const [newMemberName, setNewMemberName] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState(""); // State untuk emergency withdraw
+  const [withdrawAmount, setWithdrawAmount] = useState("");
   const [isOwner, setIsOwner] = useState(false);
   const [usdtDecimals, setUsdtDecimals] = useState(6);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState("");
+  
+  // State untuk fitur Bayar Penuh Pinjaman
+  const [showFullPayment, setShowFullPayment] = useState(false);
+  const [fullPaymentAmount, setFullPaymentAmount] = useState("");
+  const [showFullPaymentModal, setShowFullPaymentModal] = useState(false);
+  const [showFullPaymentButton, setShowFullPaymentButton] = useState(false);
+  const [fullPaymentTimer, setFullPaymentTimer] = useState(0);
 
   /* ================= CONNECT ================= */
 
@@ -83,38 +120,24 @@ export default function App() {
     console.log("🔌 [CONNECT] Starting wallet connection...");
     
     if (!window.ethereum) {
-      console.error("❌ [CONNECT] MetaMask not found");
       alert("MetaMask tidak ditemukan. Silakan install MetaMask terlebih dahulu.");
       return;
     }
 
     try {
       setLoading(true);
-      console.log("⏳ [CONNECT] Creating provider...");
       
       const prov = new ethers.BrowserProvider(window.ethereum);
-      console.log("✅ [CONNECT] Provider created");
-      
       const accounts = await prov.send("eth_requestAccounts", []);
-      console.log("👤 [CONNECT] Accounts received:", accounts);
-      
       const signer = await prov.getSigner();
-      console.log("✍️ [CONNECT] Signer obtained:", await signer.getAddress());
-      
       const network = await prov.getNetwork();
-      console.log("🌐 [CONNECT] Network info:", {
-        name: network.name,
-        chainId: network.chainId.toString()
-      });
       
       setProvider(prov);
       setSigner(signer);
       setAccount(accounts[0]);
       setNetwork(network);
 
-      // Periksa apakah jaringan Plasma Mainnet (Chain ID 9745)
       if (network.chainId !== BigInt(PLASMA_CHAIN_ID)) {
-        console.warn("⚠️ [CONNECT] Wrong network detected. Current chain ID:", network.chainId.toString());
         alert(
           `⚠️ Silakan hubungkan ke ${PLASMA_NETWORK_NAME}\n\n` +
           `Di MetaMask, tambahkan network:\n` +
@@ -124,25 +147,18 @@ export default function App() {
           `Currency Symbol: ${PLASMA_CURRENCY_SYMBOL}\n` +
           `Block Explorer: ${PLASMA_EXPLORER}`
         );
-      } else {
-        console.log("✅ [CONNECT] Connected to Plasma Mainnet Beta");
       }
 
-      console.log("📄 [CONNECT] Creating contract instances...");
       const contractInstance = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       const usdtInstance = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, signer);
       
       setContract(contractInstance);
       setUsdtContract(usdtInstance);
-      console.log("✅ [CONNECT] Contract instances created");
 
-      // Ambil decimals USDT
       const decimals = await usdtInstance.decimals();
-      console.log("🔢 [CONNECT] USDT Decimals:", decimals);
       setUsdtDecimals(Number(decimals));
 
       setLoading(false);
-      console.log("🎉 [CONNECT] Connection successful!");
     } catch (error) {
       console.error("❌ [CONNECT] Error:", error);
       alert("❌ Gagal menghubungkan wallet: " + error.message);
@@ -150,52 +166,34 @@ export default function App() {
     }
   }
 
-  /* ================= LOAD PUBLIC DATA (Without Wallet) ================= */
+  /* ================= LOAD PUBLIC DATA ================= */
 
   async function loadPublicData() {
-    console.log("🌍 [LOAD_PUBLIC_DATA] Starting public data load (no wallet required)...");
+    console.log("🌍 [LOAD_PUBLIC_DATA] Starting public data load...");
 
     try {
       setLoading(true);
-
-      // Create read-only provider menggunakan RPC resmi Plasma
-      console.log("🌍 [LOAD_PUBLIC_DATA] Connecting to Plasma RPC:", PLASMA_RPC_URL);
       const publicProvider = new ethers.JsonRpcProvider(PLASMA_RPC_URL);
       const publicContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, publicProvider);
       const publicUsdtContract = new ethers.Contract(USDT_ADDRESS, ERC20_ABI, publicProvider);
 
-      // Get USDT decimals
       const decimals = await publicUsdtContract.decimals();
       const dec = Number(decimals);
-      console.log("🔢 [LOAD_PUBLIC_DATA] USDT Decimals:", dec);
       setUsdtDecimals(dec);
 
-      // Load total fund
-      console.log("💰 [LOAD_PUBLIC_DATA] Fetching total fund...");
       const fund = await publicContract.totalFund();
       const fundFormatted = ethers.formatUnits(fund, dec);
-      console.log("💰 [LOAD_PUBLIC_DATA] Total Fund (raw):", fund.toString());
-      console.log("💰 [LOAD_PUBLIC_DATA] Total Fund (formatted):", fundFormatted);
       setTotalFund(fundFormatted);
 
-      // Load contract balance
-      console.log("🏦 [LOAD_PUBLIC_DATA] Fetching contract balance...");
       const contractBal = await publicContract.getContractBalance();
       const contractBalFormatted = ethers.formatUnits(contractBal, dec);
-      console.log("🏦 [LOAD_PUBLIC_DATA] Contract Balance (raw):", contractBal.toString());
-      console.log("🏦 [LOAD_PUBLIC_DATA] Contract Balance (formatted):", contractBalFormatted);
       setContractBalance(contractBalFormatted);
 
-      // Load all members
-      console.log("👥 [LOAD_PUBLIC_DATA] Fetching all members...");
       const memberList = await publicContract.getAllMembers();
-      console.log("👥 [LOAD_PUBLIC_DATA] Member count:", memberList.length);
       const memberDetails = [];
 
       for (let i = 0; i < memberList.length; i++) {
         const addr = memberList[i];
-        console.log(`📋 [LOAD_PUBLIC_DATA] Fetching member ${i + 1}/${memberList.length}: ${addr}`);
-        
         const memberData = await publicContract.members(addr);
         const memberObj = {
           address: addr,
@@ -205,16 +203,12 @@ export default function App() {
           remainingLoan: ethers.formatUnits(memberData[3], dec),
           exists: memberData[4]
         };
-        
-        console.log(`📋 [LOAD_PUBLIC_DATA] Member ${i + 1} data:`, memberObj);
         memberDetails.push(memberObj);
       }
 
       setMembers(memberDetails);
       setFilteredMembers(memberDetails);
       setLoading(false);
-      console.log("✅ [LOAD_PUBLIC_DATA] Public data load complete!");
-
     } catch (error) {
       console.error("❌ [LOAD_PUBLIC_DATA] Error:", error);
       setLoading(false);
@@ -224,66 +218,38 @@ export default function App() {
   /* ================= LOAD DATA (With Wallet) ================= */
 
   async function loadData() {
-    if (!contract || !account || !usdtContract) {
-      console.warn("⚠️ [LOAD_DATA] Missing required instances");
-      return;
-    }
+    if (!contract || !account || !usdtContract) return;
 
     console.log("📊 [LOAD_DATA] Starting data load...");
 
     try {
       setLoading(true);
       
-      // Load total fund
-      console.log("💰 [LOAD_DATA] Fetching total fund...");
       const fund = await contract.totalFund();
       const fundFormatted = ethers.formatUnits(fund, usdtDecimals);
-      console.log("💰 [LOAD_DATA] Total Fund (raw):", fund.toString());
-      console.log("💰 [LOAD_DATA] Total Fund (formatted):", fundFormatted);
       setTotalFund(fundFormatted);
 
-      // Load contract balance
-      console.log("🏦 [LOAD_DATA] Fetching contract balance...");
       const contractBal = await contract.getContractBalance();
       const contractBalFormatted = ethers.formatUnits(contractBal, usdtDecimals);
-      console.log("🏦 [LOAD_DATA] Contract Balance (raw):", contractBal.toString());
-      console.log("🏦 [LOAD_DATA] Contract Balance (formatted):", contractBalFormatted);
       setContractBalance(contractBalFormatted);
 
-      // Load user's USDT balance
-      console.log("👛 [LOAD_DATA] Fetching user USDT balance...");
       const balance = await usdtContract.balanceOf(account);
       const balanceFormatted = ethers.formatUnits(balance, usdtDecimals);
-      console.log("👛 [LOAD_DATA] User Balance (raw):", balance.toString());
-      console.log("👛 [LOAD_DATA] User Balance (formatted):", balanceFormatted);
       setUsdtBalance(balanceFormatted);
 
-      // Load allowance
-      console.log("✅ [LOAD_DATA] Fetching allowance...");
       const allowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
       const allowanceFormatted = ethers.formatUnits(allowance, usdtDecimals);
-      console.log("✅ [LOAD_DATA] Allowance (raw):", allowance.toString());
-      console.log("✅ [LOAD_DATA] Allowance (formatted):", allowanceFormatted);
       setUsdtAllowance(allowanceFormatted);
 
-      // Check if user is owner
-      console.log("👑 [LOAD_DATA] Checking owner status...");
       const ownerAddress = await contract.owner();
       const isUserOwner = ownerAddress.toLowerCase() === account.toLowerCase();
-      console.log("👑 [LOAD_DATA] Owner address:", ownerAddress);
-      console.log("👑 [LOAD_DATA] Is user owner?", isUserOwner);
       setIsOwner(isUserOwner);
 
-      // Load all members
-      console.log("👥 [LOAD_DATA] Fetching all members...");
       const memberList = await contract.getAllMembers();
-      console.log("👥 [LOAD_DATA] Member count:", memberList.length);
       const memberDetails = [];
 
       for (let i = 0; i < memberList.length; i++) {
         const addr = memberList[i];
-        console.log(`📋 [LOAD_DATA] Fetching member ${i + 1}/${memberList.length}: ${addr}`);
-        
         const memberData = await contract.members(addr);
         const memberObj = {
           address: addr,
@@ -293,14 +259,9 @@ export default function App() {
           remainingLoan: ethers.formatUnits(memberData[3], usdtDecimals),
           exists: memberData[4]
         };
-        
-        console.log(`📋 [LOAD_DATA] Member ${i + 1} data:`, memberObj);
         memberDetails.push(memberObj);
 
-        // Jika user adalah member ini, load maxLoan
         if (addr.toLowerCase() === account.toLowerCase()) {
-          console.log("🎯 [LOAD_DATA] Current user is a member, fetching additional info...");
-          
           setUserMemberInfo({
             name: memberData[0],
             deposit: ethers.formatUnits(memberData[1], usdtDecimals),
@@ -310,17 +271,21 @@ export default function App() {
 
           const maxLoan = await contract.maxLoan(addr);
           const maxLoanFormatted = ethers.formatUnits(maxLoan, usdtDecimals);
-          console.log("💵 [LOAD_DATA] User Max Loan (raw):", maxLoan.toString());
-          console.log("💵 [LOAD_DATA] User Max Loan (formatted):", maxLoanFormatted);
           setUserMaxLoan(maxLoanFormatted);
+          
+          // Cek apakah user memiliki pinjaman aktif
+          const hasActiveLoan = parseFloat(ethers.formatUnits(memberData[3], usdtDecimals)) > 0;
+          if (hasActiveLoan) {
+            setFullPaymentAmount(ethers.formatUnits(memberData[3], usdtDecimals));
+          } else {
+            setFullPaymentAmount("");
+          }
         }
       }
 
       setMembers(memberDetails);
       setFilteredMembers(memberDetails);
       setLoading(false);
-      console.log("✅ [LOAD_DATA] Data load complete!");
-
     } catch (error) {
       console.error("❌ [LOAD_DATA] Error:", error);
       setLoading(false);
@@ -330,80 +295,38 @@ export default function App() {
   /* ================= FILTER MEMBERS ================= */
 
   useEffect(() => {
-    console.log("🔍 [FILTER] Search term changed:", searchTerm);
-    
     if (searchTerm.trim() === "") {
       setFilteredMembers(members);
-      console.log("🔍 [FILTER] Showing all members:", members.length);
     } else {
       const filtered = members.filter(member =>
         member.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         member.address.toLowerCase().includes(searchTerm.toLowerCase())
       );
       setFilteredMembers(filtered);
-      console.log("🔍 [FILTER] Filtered members:", filtered.length);
     }
   }, [searchTerm, members]);
 
-  // Load public data on mount (before wallet connection)
+  // Load public data on mount
   useEffect(() => {
-    console.log("🌍 [MOUNT] Component mounted, loading public data...");
     loadPublicData();
   }, []);
 
+  // Load user data when connected
   useEffect(() => {
     if (contract && account) {
-      console.log("🔄 [EFFECT] Contract and account ready, loading user-specific data...");
       loadData();
       
-      // Setup event listeners
-      console.log("👂 [EFFECT] Setting up event listeners...");
       const depositFilter = contract.filters.Deposit(account);
       const loanFilter = contract.filters.Loan(account);
       const installmentFilter = contract.filters.Installment(account);
       const emergencyWithdrawFilter = contract.filters.EmergencyWithdraw();
 
-      contract.on(depositFilter, (user, amount, fee, event) => {
-        console.log("🎉 [EVENT] Deposit detected:", {
-          user,
-          amount: amount.toString(),
-          fee: fee.toString(),
-          blockNumber: event.log.blockNumber
-        });
-        loadData();
-      });
-      
-      contract.on(loanFilter, (user, amount, fee, event) => {
-        console.log("🎉 [EVENT] Loan detected:", {
-          user,
-          amount: amount.toString(),
-          fee: fee.toString(),
-          blockNumber: event.log.blockNumber
-        });
-        loadData();
-      });
-      
-      contract.on(installmentFilter, (user, amount, fee, event) => {
-        console.log("🎉 [EVENT] Installment detected:", {
-          user,
-          amount: amount.toString(),
-          fee: fee.toString(),
-          blockNumber: event.log.blockNumber
-        });
-        loadData();
-      });
-      
-      contract.on(emergencyWithdrawFilter, (owner, amount, event) => {
-        console.log("🎉 [EVENT] Emergency Withdraw detected:", {
-          owner,
-          amount: amount.toString(),
-          blockNumber: event.log.blockNumber
-        });
-        loadData();
-      });
+      contract.on(depositFilter, loadData);
+      contract.on(loanFilter, loadData);
+      contract.on(installmentFilter, loadData);
+      contract.on(emergencyWithdrawFilter, loadData);
 
       return () => {
-        console.log("🔇 [EFFECT] Cleaning up event listeners...");
         contract.off(depositFilter, loadData);
         contract.off(loanFilter, loadData);
         contract.off(installmentFilter, loadData);
@@ -412,58 +335,62 @@ export default function App() {
     }
   }, [contract, account]);
 
+  /* ================= TIMER FOR FULL PAYMENT BUTTON ================= */
+
+  useEffect(() => {
+    let timer;
+    
+    if (showFullPayment) {
+      setShowFullPaymentButton(false);
+      setFullPaymentTimer(4);
+      
+      timer = setInterval(() => {
+        setFullPaymentTimer((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setShowFullPaymentButton(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [showFullPayment]);
+
   /* ================= ACTIONS ================= */
 
   async function approveUSDT() {
-    if (!usdtContract || !contract) {
-      console.error("❌ [APPROVE] Missing contract instances");
-      return;
-    }
-    
-    console.log("✅ [APPROVE] Starting USDT approval...");
+    if (!usdtContract || !contract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       
-      // Hitung allowance yang dibutuhkan
       let value;
       if (amount && amount !== "") {
         value = ethers.parseUnits(amount, usdtDecimals);
-        console.log("✅ [APPROVE] Approving specific amount:", amount, "USDT");
       } else {
-        // Jika tidak ada amount yang diinput, approve 1000 USDT untuk kemudahan
         value = ethers.parseUnits("1000", usdtDecimals);
-        console.log("✅ [APPROVE] Approving default amount: 1000 USDT");
       }
       
-      console.log("✅ [APPROVE] Value to approve (raw):", value.toString());
-      
-      // Cek allowance saat ini
       const currentAllowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
-      console.log("✅ [APPROVE] Current allowance (raw):", currentAllowance.toString());
       
       if (currentAllowance >= value) {
-        console.log("✅ [APPROVE] Allowance already sufficient");
         alert("✅ Allowance sudah cukup!");
         setLoading(false);
         return;
       }
       
-      console.log("✅ [APPROVE] Sending approve transaction...");
       const tx = await usdtContract.approve(CONTRACT_ADDRESS, value);
-      console.log("✅ [APPROVE] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
-      console.log("⏳ [APPROVE] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [APPROVE] Transaction confirmed!");
       
-      // Update allowance display
       const newAllowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
       const newAllowanceFormatted = ethers.formatUnits(newAllowance, usdtDecimals);
-      console.log("✅ [APPROVE] New allowance (raw):", newAllowance.toString());
-      console.log("✅ [APPROVE] New allowance (formatted):", newAllowanceFormatted);
       setUsdtAllowance(newAllowanceFormatted);
       
       alert(`✅ Approve berhasil!\nAllowance: ${newAllowanceFormatted} USDT`);
@@ -477,56 +404,30 @@ export default function App() {
   }
 
   async function deposit() {
-    if (!amount || !contract || !usdtContract) {
-      console.error("❌ [DEPOSIT] Missing required data");
-      return;
-    }
-    
-    console.log("💰 [DEPOSIT] Starting deposit process...");
-    console.log("💰 [DEPOSIT] Amount to deposit:", amount, "USDT");
+    if (!amount || !contract || !usdtContract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      console.log("💰 [DEPOSIT] Parsed value (raw):", value.toString());
       
-      // 1. Cek balance user
-      console.log("💰 [DEPOSIT] Checking user balance...");
       const userBalance = await usdtContract.balanceOf(account);
-      console.log("💰 [DEPOSIT] User balance (raw):", userBalance.toString());
-      
       if (userBalance < value) {
-        const balanceFormatted = ethers.formatUnits(userBalance, usdtDecimals);
-        console.error("❌ [DEPOSIT] Insufficient balance:", balanceFormatted);
-        alert(`❌ Saldo tidak cukup!\nSaldo Anda: ${balanceFormatted} USDT`);
+        alert(`❌ Saldo tidak cukup!`);
         setLoading(false);
         return;
       }
       
-      // 2. Cek allowance
-      console.log("💰 [DEPOSIT] Checking allowance...");
       const allowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
-      console.log("💰 [DEPOSIT] Current allowance (raw):", allowance.toString());
-      
       if (allowance < value) {
-        const needed = value - allowance;
-        const neededAllowance = ethers.formatUnits(needed, usdtDecimals);
-        console.error("❌ [DEPOSIT] Insufficient allowance, need:", neededAllowance);
-        alert(`⚠️ Allowance tidak cukup!\n\nPerlu approve tambahan ${neededAllowance} USDT\n\nKlik "Approve USDT" terlebih dahulu.`);
+        alert(`⚠️ Allowance tidak cukup!\n\nKlik "Approve USDT" terlebih dahulu.`);
         setLoading(false);
         return;
       }
       
-      // 3. Eksekusi deposit
-      console.log("💰 [DEPOSIT] Sending deposit transaction...");
       const tx = await contract.deposit(value);
-      console.log("💰 [DEPOSIT] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
-      console.log("⏳ [DEPOSIT] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [DEPOSIT] Transaction confirmed!");
       
       alert(`✅ Deposit berhasil!\n${amount} USDT telah dideposit.`);
       setAmount("");
@@ -535,73 +436,37 @@ export default function App() {
       
     } catch (error) {
       console.error("❌ [DEPOSIT] Error:", error);
-      
-      // Pesan error yang lebih user-friendly
-      if (error.message.includes("allowance")) {
-        alert("❌ Gagal deposit: Allowance tidak cukup!\n\nSilakan klik 'Approve USDT' terlebih dahulu.");
-      } else if (error.message.includes("Not member")) {
-        alert("❌ Anda belum terdaftar sebagai member!\n\nHubungi admin untuk ditambahkan sebagai member.");
-      } else if (error.message.includes("transfer amount exceeds balance")) {
-        alert("❌ Saldo tidak cukup untuk melakukan deposit!");
-      } else {
-        alert("❌ Gagal deposit: " + error.message);
-      }
+      alert("❌ Gagal deposit: " + error.message);
       setLoading(false);
     }
   }
 
   async function approveAndDeposit() {
-    if (!amount || !contract || !usdtContract) {
-      console.error("❌ [APPROVE_DEPOSIT] Missing required data");
-      return;
-    }
-    
-    console.log("🚀 [APPROVE_DEPOSIT] Starting approve and deposit process...");
-    console.log("🚀 [APPROVE_DEPOSIT] Amount:", amount, "USDT");
+    if (!amount || !contract || !usdtContract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      console.log("🚀 [APPROVE_DEPOSIT] Parsed value (raw):", value.toString());
       
-      // 1. Cek balance
-      console.log("🚀 [APPROVE_DEPOSIT] Checking balance...");
       const userBalance = await usdtContract.balanceOf(account);
-      console.log("🚀 [APPROVE_DEPOSIT] User balance (raw):", userBalance.toString());
-      
       if (userBalance < value) {
-        console.error("❌ [APPROVE_DEPOSIT] Insufficient balance");
         alert(`❌ Saldo tidak cukup!`);
         setLoading(false);
         return;
       }
       
-      // 2. Approve
-      console.log("🚀 [APPROVE_DEPOSIT] Sending approve transaction...");
       alert("🚀 Melakukan approve...");
       const approveTx = await usdtContract.approve(CONTRACT_ADDRESS, value);
-      console.log("🚀 [APPROVE_DEPOSIT] Approve tx hash:", approveTx.hash);
       setTxHash(approveTx.hash);
-      
-      console.log("⏳ [APPROVE_DEPOSIT] Waiting for approve confirmation...");
       await approveTx.wait();
-      console.log("✅ [APPROVE_DEPOSIT] Approve confirmed!");
       
-      // Tunggu beberapa detik untuk blockchain update
-      console.log("⏳ [APPROVE_DEPOSIT] Waiting 3 seconds for blockchain sync...");
       await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // 3. Deposit
-      console.log("🚀 [APPROVE_DEPOSIT] Sending deposit transaction...");
       alert("✅ Approve berhasil! Melakukan deposit...");
       const depositTx = await contract.deposit(value);
-      console.log("🚀 [APPROVE_DEPOSIT] Deposit tx hash:", depositTx.hash);
       setTxHash(depositTx.hash);
-      
-      console.log("⏳ [APPROVE_DEPOSIT] Waiting for deposit confirmation...");
       await depositTx.wait();
-      console.log("✅ [APPROVE_DEPOSIT] Deposit confirmed!");
       
       alert(`🎉 Deposit berhasil! ${amount} USDT telah dideposit.`);
       setAmount("");
@@ -616,28 +481,16 @@ export default function App() {
   }
 
   async function borrow() {
-    if (!amount || !contract) {
-      console.error("❌ [BORROW] Missing required data");
-      return;
-    }
-    
-    console.log("📥 [BORROW] Starting borrow process...");
-    console.log("📥 [BORROW] Amount to borrow:", amount, "USDT");
+    if (!amount || !contract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      console.log("📥 [BORROW] Parsed value (raw):", value.toString());
       
-      console.log("📥 [BORROW] Sending borrow transaction...");
       const tx = await contract.borrow(value);
-      console.log("📥 [BORROW] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
-      console.log("⏳ [BORROW] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [BORROW] Transaction confirmed!");
       
       alert("✅ Pinjaman berhasil!");
       setAmount("");
@@ -651,28 +504,16 @@ export default function App() {
   }
 
   async function payInstallment() {
-    if (!amount || !contract) {
-      console.error("❌ [INSTALLMENT] Missing required data");
-      return;
-    }
-    
-    console.log("💳 [INSTALLMENT] Starting installment payment...");
-    console.log("💳 [INSTALLMENT] Amount to pay:", amount, "USDT");
+    if (!amount || !contract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      console.log("💳 [INSTALLMENT] Parsed value (raw):", value.toString());
       
-      console.log("💳 [INSTALLMENT] Sending payment transaction...");
       const tx = await contract.payInstallment(value);
-      console.log("💳 [INSTALLMENT] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
-      console.log("⏳ [INSTALLMENT] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [INSTALLMENT] Transaction confirmed!");
       
       alert("✅ Cicilan berhasil dibayar!");
       setAmount("");
@@ -685,28 +526,76 @@ export default function App() {
     }
   }
 
-  async function addMember() {
-    if (!newMemberAddress || !newMemberName || !contract) {
-      console.error("❌ [ADD_MEMBER] Missing required data");
+  /* ================= FULL PAYMENT FUNCTIONS ================= */
+
+  function handleFullPaymentClick() {
+    if (!userMemberInfo) return;
+    
+    const remainingLoan = parseFloat(userMemberInfo.remainingLoan);
+    if (remainingLoan === 0) {
+      alert("❌ Anda tidak memiliki pinjaman yang harus dibayar.");
       return;
     }
     
-    console.log("➕ [ADD_MEMBER] Starting add member process...");
-    console.log("➕ [ADD_MEMBER] Address:", newMemberAddress);
-    console.log("➕ [ADD_MEMBER] Name:", newMemberName);
+    setShowFullPayment(true);
+    setAmount(fullPaymentAmount);
+    
+    // Reset state setelah beberapa saat
+    setTimeout(() => {
+      setShowFullPayment(false);
+      setShowFullPaymentButton(false);
+    }, 10000);
+  }
+
+  async function payFullLoan() {
+    if (!fullPaymentAmount || !contract) {
+      alert("❌ Tidak ada jumlah pinjaman yang ditemukan.");
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      const value = ethers.parseUnits(fullPaymentAmount, usdtDecimals);
+      
+      // Cek allowance terlebih dahulu
+      const allowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
+      if (allowance < value) {
+        alert(`⚠️ Allowance tidak cukup untuk membayar penuh!\n\nPerlu approve ${fullPaymentAmount} USDT terlebih dahulu.`);
+        setShowFullPaymentModal(false);
+        setLoading(false);
+        return;
+      }
+      
+      const tx = await contract.payInstallment(value);
+      setTxHash(tx.hash);
+      await tx.wait();
+      
+      alert(`✅ Pinjaman berhasil dilunasi sebesar ${fullPaymentAmount} USDT!`);
+      setShowFullPaymentModal(false);
+      setShowFullPayment(false);
+      setFullPaymentAmount("");
+      loadData();
+      setLoading(false);
+      
+    } catch (error) {
+      console.error("❌ [FULL_PAYMENT] Error:", error);
+      alert("❌ Gagal melunasi pinjaman: " + error.message);
+      setLoading(false);
+    }
+  }
+
+  /* ================= OTHER FUNCTIONS ================= */
+
+  async function addMember() {
+    if (!newMemberAddress || !newMemberName || !contract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       
-      console.log("➕ [ADD_MEMBER] Sending transaction...");
       const tx = await contract.addMember(newMemberAddress, newMemberName);
-      console.log("➕ [ADD_MEMBER] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
-      console.log("⏳ [ADD_MEMBER] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [ADD_MEMBER] Transaction confirmed!");
       
       alert("✅ Member berhasil ditambahkan!");
       setNewMemberAddress("");
@@ -721,30 +610,18 @@ export default function App() {
   }
 
   async function clearAllowance() {
-    if (!usdtContract) {
-      console.error("❌ [CLEAR_ALLOWANCE] Missing USDT contract");
-      return;
-    }
-    
-    console.log("🗑️ [CLEAR_ALLOWANCE] Starting allowance reset...");
+    if (!usdtContract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       
-      console.log("🗑️ [CLEAR_ALLOWANCE] Sending transaction to reset allowance to 0...");
       const tx = await usdtContract.approve(CONTRACT_ADDRESS, 0);
-      console.log("🗑️ [CLEAR_ALLOWANCE] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
-      console.log("⏳ [CLEAR_ALLOWANCE] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [CLEAR_ALLOWANCE] Transaction confirmed!");
       
       const newAllowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
       const newAllowanceFormatted = ethers.formatUnits(newAllowance, usdtDecimals);
-      console.log("🗑️ [CLEAR_ALLOWANCE] New allowance (raw):", newAllowance.toString());
-      console.log("🗑️ [CLEAR_ALLOWANCE] New allowance (formatted):", newAllowanceFormatted);
       setUsdtAllowance(newAllowanceFormatted);
       
       alert("✅ Allowance di-reset ke 0!");
@@ -756,15 +633,8 @@ export default function App() {
     }
   }
 
-  /* ================= EMERGENCY WITHDRAW FUNCTION ================= */
-
   async function emergencyWithdraw() {
-    if (!contract) {
-      console.error("❌ [EMERGENCY_WITHDRAW] Missing contract");
-      return;
-    }
-    
-    console.log("⚠️ [EMERGENCY_WITHDRAW] Starting emergency withdraw...");
+    if (!contract) return;
     
     try {
       setLoading(true);
@@ -774,12 +644,9 @@ export default function App() {
       let amountToWithdraw = "";
       
       if (withdrawAmount && withdrawAmount.trim() !== "") {
-        // Withdraw jumlah tertentu
         value = ethers.parseUnits(withdrawAmount, usdtDecimals);
         amountToWithdraw = withdrawAmount;
-        console.log("⚠️ [EMERGENCY_WITHDRAW] Withdrawing specific amount:", withdrawAmount, "USDT");
         
-        // Konfirmasi jumlah tertentu
         const confirmWithdraw = window.confirm(
           `⚠️ PERINGATAN!\n\nAnda akan menarik ${withdrawAmount} USDT dari dana komunitas ke wallet owner.\n\nTotal Dana Komunitas: ${totalFund} USDT\n\nApakah Anda yakin?`
         );
@@ -789,10 +656,6 @@ export default function App() {
           return;
         }
       } else {
-        // Withdraw semua dana
-        console.log("⚠️ [EMERGENCY_WITHDRAW] Withdrawing ALL funds");
-        
-        // Dapatkan total fund dari contract
         const totalFundRaw = await contract.totalFund();
         const totalFundFormatted = ethers.formatUnits(totalFundRaw, usdtDecimals);
         
@@ -802,7 +665,6 @@ export default function App() {
           return;
         }
         
-        // Konfirmasi sebelum withdraw semua
         const confirmWithdraw = window.confirm(
           `⚠️ PERINGATAN KRITIS!\n\nAnda akan menarik SELURUH dana komunitas:\n${totalFundFormatted} USDT\n\nTindakan ini tidak dapat dibatalkan!\n\nApakah Anda benar-benar yakin?`
         );
@@ -814,44 +676,21 @@ export default function App() {
         
         value = totalFundRaw;
         amountToWithdraw = totalFundFormatted;
-        console.log("⚠️ [EMERGENCY_WITHDRAW] Withdrawing all funds:", totalFundFormatted, "USDT");
       }
       
-      console.log("⚠️ [EMERGENCY_WITHDRAW] Value to withdraw (raw):", value.toString());
-      
-      console.log("⚠️ [EMERGENCY_WITHDRAW] Sending transaction...");
       const tx = await contract.emergencyWithdraw(value);
-      console.log("⚠️ [EMERGENCY_WITHDRAW] Transaction sent, hash:", tx.hash);
       setTxHash(tx.hash);
-      
       alert("⏳ Emergency withdraw sedang diproses... Harap tunggu konfirmasi.");
-      console.log("⏳ [EMERGENCY_WITHDRAW] Waiting for confirmation...");
       await tx.wait();
-      console.log("✅ [EMERGENCY_WITHDRAW] Transaction confirmed!");
       
       alert(`✅ Emergency withdraw berhasil!\n${amountToWithdraw} USDT telah ditarik ke wallet owner.`);
-      
-      // Reset input dan refresh data
       setWithdrawAmount("");
       loadData();
       setLoading(false);
       
     } catch (error) {
       console.error("❌ [EMERGENCY_WITHDRAW] Error:", error);
-      
-      // Pesan error khusus
-      if (error.message.includes("Only owner")) {
-        alert("❌ Hanya owner yang bisa menggunakan fungsi ini!");
-      } else if (error.message.includes("Insufficient contract balance")) {
-        alert("❌ Saldo kontrak tidak cukup!");
-      } else if (error.message.includes("Amount exceeds total fund")) {
-        alert("❌ Jumlah melebihi total dana komunitas!");
-      } else if (error.message.includes("user rejected transaction")) {
-        alert("❌ Transaksi ditolak oleh user!");
-      } else {
-        alert("❌ Gagal emergency withdraw: " + error.message);
-      }
-      
+      alert("❌ Gagal emergency withdraw: " + error.message);
       setLoading(false);
     }
   }
@@ -864,9 +703,9 @@ export default function App() {
         
         {/* HEADER */}
         <div className="card" style={{ textAlign: "center", marginBottom: 30 }}>
-          <h2>💰 Community Fund – Plasma Mainnet Beta</h2>
+          <h2>💰 Community Fund – USDT on Plasma</h2>
           <p style={{ color: "#94a3b8", marginBottom: 20 }}>
-            Deposit USDT, Pinjam Dana, Kelola Komunitas<br/>
+            Deposit USDT, Pinjam Dana, Kelola Komunitas - Di eksekusi dengan kode smart contract (Otomatis tanpa campur tangan manusia)<br/>
             <small>Gas Fee menggunakan {PLASMA_CURRENCY_SYMBOL} (Plasma XPL)</small>
           </p>
           
@@ -881,7 +720,7 @@ export default function App() {
             </button>
           ) : (
             <div style={{ textAlign: "left" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20 }}>
                 <div>
                   <p><b>👤 Wallet:</b> <span className="wallet-address">{account.substring(0, 10)}...{account.substring(account.length - 8)}</span></p>
                   <p><b>🌐 Network:</b> {network ? network.name : "Unknown"} (Chain ID: {network ? network.chainId.toString() : "N/A"})</p>
@@ -922,31 +761,15 @@ export default function App() {
           </div>
         )}
 
-        {/* EMERGENCY WITHDRAW SECTION - Only for Owner */}
+        {/* EMERGENCY WITHDRAW SECTION */}
         {isOwner && (
-          <div className="card" style={{ 
-            border: "2px solid #ef4444", 
-            backgroundColor: "rgba(239, 68, 68, 0.05)",
-            marginBottom: 30
-          }}>
-            <div style={{ 
-              display: "flex", 
-              alignItems: "center", 
-              gap: 10, 
-              marginBottom: 20,
-              color: "#ef4444" 
-            }}>
+          <div className="card emergency-section">
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
               <div style={{ fontSize: "24px" }}>⚠️</div>
-              <h3 style={{ margin: 0, color: "#ef4444" }}>Emergency Withdraw (Owner Only)</h3>
+              <h3 style={{ margin: 0 }}>Emergency Withdraw (Owner Only)</h3>
             </div>
             
-            <div style={{ 
-              backgroundColor: "rgba(239, 68, 68, 0.1)", 
-              padding: 20, 
-              borderRadius: 10,
-              marginBottom: 20,
-              border: "1px solid rgba(239, 68, 68, 0.3)"
-            }}>
+            <div style={{ backgroundColor: "rgba(239, 68, 68, 0.1)", padding: 20, borderRadius: 10, marginBottom: 20 }}>
               <div style={{ marginBottom: 15 }}>
                 <p style={{ color: "#ef4444", fontWeight: "bold", fontSize: "14px" }}>
                   ⚠️ PERINGATAN: Hanya gunakan fungsi ini dalam keadaan darurat!
@@ -967,51 +790,23 @@ export default function App() {
                   placeholder={`Contoh: 100 atau kosongkan untuk ${totalFund} USDT`}
                   value={withdrawAmount}
                   onChange={(e) => setWithdrawAmount(e.target.value)}
-                  style={{ 
-                    borderColor: "#ef4444",
-                    backgroundColor: "rgba(239, 68, 68, 0.05)"
-                  }}
+                  style={{ borderColor: "#ef4444" }}
                 />
-                <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: 5 }}>
-                  Biarkan kosong untuk menarik semua dana ({totalFund} USDT)
-                </div>
               </div>
               
               <button 
                 onClick={emergencyWithdraw} 
                 className="btn btn-danger"
                 disabled={loading || parseFloat(totalFund) === 0}
-                style={{ 
-                  background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                  width: "100%",
-                  marginTop: 15,
-                  padding: "12px 24px",
-                  fontSize: "16px",
-                  fontWeight: "bold"
-                }}
+                style={{ width: "100%", marginTop: 15 }}
               >
                 {loading ? "⏳ Processing..." : "⚠️ Emergency Withdraw to Owner"}
               </button>
-              
-              {withdrawAmount && (
-                <div style={{ 
-                  marginTop: 15, 
-                  padding: 10, 
-                  backgroundColor: "rgba(239, 68, 68, 0.1)", 
-                  borderRadius: 8,
-                  fontSize: "14px",
-                  color: "#ef4444"
-                }}>
-                  <b>Withdraw Amount:</b> {withdrawAmount} USDT
-                  <br/>
-                  <b>Remaining after withdraw:</b> {(parseFloat(totalFund) - parseFloat(withdrawAmount || 0)).toFixed(6)} USDT
-                </div>
-              )}
             </div>
           </div>
         )}
 
-        {/* TRANSACTION SECTION - Only show when wallet connected */}
+        {/* TRANSACTION SECTION */}
         {account && (
           <div className="card">
             <h3>📤 Transaksi</h3>
@@ -1025,7 +820,14 @@ export default function App() {
                 placeholder="Contoh: 0.2 atau 0.0001"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
+                readOnly={showFullPayment}
+                style={showFullPayment ? { backgroundColor: "#f0f9ff", borderColor: "#0ea5e9" } : {}}
               />
+              {showFullPayment && (
+                <div style={{ fontSize: "12px", color: "#0ea5e9", marginTop: 5 }}>
+                  ⚡ Jumlah pinjaman otomatis terisi
+                </div>
+              )}
             </div>
 
             {/* Allowance Info */}
@@ -1044,13 +846,13 @@ export default function App() {
               </div>
               {amount && (
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", color: "#94a3b8" }}>
-                  <span>Dibutuhkan untuk deposit:</span>
+                  <span>Dibutuhkan untuk transaksi:</span>
                   <span>{amount} USDT</span>
                 </div>
               )}
             </div>
 
-            {/* Transaction Buttons */}
+            {/* Basic Transaction Buttons */}
             <div className="btn-group">
               <button 
                 onClick={approveUSDT} 
@@ -1086,23 +888,93 @@ export default function App() {
               </button>
             </div>
 
-            {/* Loan Buttons */}
-            <div className="btn-group" style={{ marginTop: 20 }}>
-              <button 
-                onClick={borrow} 
-                className="btn btn-warning"
-                disabled={loading || !amount}
-              >
-                {loading ? "⏳ Processing..." : "📥 Pinjam"}
-              </button>
+            {/* Loan Management Section */}
+            <div style={{ marginTop: 30, paddingTop: 20, borderTop: "1px solid #e2e8f0" }}>
+              <h4 style={{ marginBottom: 15 }}>📥 Manajemen Pinjaman</h4>
               
-              <button 
-                onClick={payInstallment} 
-                className="btn btn-secondary"
-                disabled={loading || !amount}
-              >
-                {loading ? "⏳ Processing..." : "💳 Bayar Cicilan"}
-              </button>
+              {/* Full Payment Button */}
+              {userMemberInfo && parseFloat(userMemberInfo.remainingLoan) > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <button 
+                    onClick={handleFullPaymentClick}
+                    className="btn btn-primary"
+                    disabled={showFullPayment || loading}
+                    style={{ 
+                      background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                      width: "100%",
+                      marginBottom: 10
+                    }}
+                  >
+                    💰 Bayar Penuh Pinjaman
+                  </button>
+                  
+                  {showFullPayment && (
+                    <div style={{ 
+                      backgroundColor: "rgba(16, 185, 129, 0.1)", 
+                      padding: 15, 
+                      borderRadius: 10,
+                      border: "1px solid rgba(16, 185, 129, 0.3)",
+                      textAlign: "center"
+                    }}>
+                      {!showFullPaymentButton ? (
+                        <div>
+                          <p style={{ color: "#10b981", fontWeight: "bold" }}>
+                            ⏳ Tunggu {fullPaymentTimer} detik...
+                          </p>
+                          <p style={{ color: "#64748b", fontSize: "14px" }}>
+                            Pastikan Anda yakin ingin melunasi pinjaman sebesar {fullPaymentAmount} USDT
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p style={{ color: "#10b981", fontWeight: "bold", marginBottom: 10 }}>
+                            ✅ Siap untuk melunasi pinjaman!
+                          </p>
+                          <button 
+                            onClick={() => setShowFullPaymentModal(true)}
+                            className="btn btn-primary"
+                            style={{ 
+                              background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                              width: "100%"
+                            }}
+                          >
+                            🚀 Bayar {fullPaymentAmount} USDT Sekarang
+                          </button>
+                          <button 
+                            onClick={() => setShowFullPayment(false)}
+                            className="btn btn-secondary"
+                            style={{ width: "100%", marginTop: 10 }}
+                          >
+                            Batal
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Loan Action Buttons */}
+              <div className="btn-group">
+                <button 
+                  onClick={borrow} 
+                  className="btn btn-warning"
+                  disabled={loading || !amount}
+                >
+                  {loading ? "⏳ Processing..." : "📥 Pinjam"}
+                </button>
+                
+                {/* Show installment button only if NOT in full payment mode */}
+                {!showFullPayment && (
+                  <button 
+                    onClick={payInstallment} 
+                    className="btn btn-secondary"
+                    disabled={loading || !amount}
+                  >
+                    {loading ? "⏳ Processing..." : "💳 Bayar Cicilan"}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Transaction Hash */}
@@ -1120,7 +992,6 @@ export default function App() {
         {isOwner && (
           <div className="card admin-card">
             <h3>👑 Admin Functions</h3>
-            
             <div style={{ display: "grid", gap: 15 }}>
               <div className="input-group">
                 <label className="input-label">Alamat Member Baru</label>
@@ -1161,7 +1032,6 @@ export default function App() {
             <h3 style={{ margin: 0 }}>👥 Daftar Anggota ({filteredMembers.length})</h3>
             
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              {/* Refresh Button */}
               <button
                 onClick={loadPublicData}
                 className="btn btn-primary"
@@ -1171,7 +1041,6 @@ export default function App() {
                 {loading ? "⏳ Memuat..." : "🔄 Refresh Data"}
               </button>
               
-              {/* Search Filter */}
               <div style={{ position: "relative", width: "100%", maxWidth: 300 }}>
                 <input
                   type="text"
@@ -1211,7 +1080,6 @@ export default function App() {
               padding: 15, 
               borderRadius: 10,
               marginBottom: 20,
-              border: "1px solid rgba(59, 130, 246, 0.3)",
               textAlign: "center"
             }}>
               <p style={{ margin: 0, color: "#3b82f6", fontSize: "14px" }}>
@@ -1280,22 +1148,33 @@ export default function App() {
         </div>
 
         {/* FOOTER */}
-        <div className="footer" style={{ marginTop: 30, paddingTop: 20, borderTop: "1px solid #334155" }}>
+        <div className="footer">
           <p>💡 <b>Tips:</b> Pastikan Anda terhubung ke {PLASMA_NETWORK_NAME} dan memiliki USDT Plasma Native</p>
           <p>⛽ <b>Gas Fee:</b> Semua transaksi menggunakan {PLASMA_CURRENCY_SYMBOL} sebagai gas fee</p>
           <p style={{ fontSize: "12px", color: "#94a3b8" }}>
-            Contract: <a href={`${PLASMA_EXPLORER}/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6" }}>
+            Contract: <a href={`${PLASMA_EXPLORER}/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer">
               {CONTRACT_ADDRESS.substring(0, 10)}...{CONTRACT_ADDRESS.substring(CONTRACT_ADDRESS.length - 8)}
             </a> | 
-            USDT: <a href={`${PLASMA_EXPLORER}/token/${USDT_ADDRESS}`} target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6" }}>
+            USDT: <a href={`${PLASMA_EXPLORER}/token/${USDT_ADDRESS}`} target="_blank" rel="noopener noreferrer">
               {USDT_ADDRESS.substring(0, 10)}...{USDT_ADDRESS.substring(USDT_ADDRESS.length - 8)}
             </a>
           </p>
           <p style={{ fontSize: "12px", color: "#64748b", marginTop: 10 }}>
-            🌐 RPC: {PLASMA_RPC_URL} | Chain ID: {PLASMA_CHAIN_ID} | Explorer: <a href={PLASMA_EXPLORER} target="_blank" rel="noopener noreferrer" style={{ color: "#3b82f6" }}>{PLASMA_EXPLORER}</a>
+            🌐 RPC: {PLASMA_RPC_URL} | Chain ID: {PLASMA_CHAIN_ID} | Explorer: <a href={PLASMA_EXPLORER} target="_blank" rel="noopener noreferrer">{PLASMA_EXPLORER}</a>
           </p>
         </div>
       </div>
+
+      {/* Modal Konfirmasi Bayar Penuh */}
+      <ConfirmationModal
+        isOpen={showFullPaymentModal}
+        onClose={() => setShowFullPaymentModal(false)}
+        onConfirm={payFullLoan}
+        title="Konfirmasi Pelunasan Pinjaman"
+        message={`Apakah Anda yakin ingin melunasi seluruh pinjaman sebesar ${fullPaymentAmount} USDT?`}
+        amount={fullPaymentAmount}
+        loading={loading}
+      />
     </div>
   );
 }
