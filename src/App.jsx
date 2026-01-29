@@ -4,7 +4,7 @@ import "./App.css";
 
 /* ================= CONFIG ================= */
 
-const CONTRACT_ADDRESS = "0x78F2ab39424A7A715D26A7933D7d1A5cC8be67cd"; // Ganti dengan alamat contract Anda
+const CONTRACT_ADDRESS = "0xeb67046949CA250B092A9dB1B4F59C3f6E1ff3d8"; // Ganti dengan alamat contract Anda
 const USDT_ADDRESS = "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb"; // USDT Plasma Native
 
 /* ================= ABI ================= */
