@@ -1046,7 +1046,7 @@ export default function App() {
                 <input
                   type="text"
                   className="input-field"
-                  placeholder="🔍 Cari nama atau alamat..."
+                  placeholder="Cari nama atau alamat..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   style={{ paddingLeft: 40 }}
