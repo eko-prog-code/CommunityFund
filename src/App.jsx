@@ -4,7 +4,7 @@ import './App.css';
 
 /* ================= CONFIG ================= */
 
-const CONTRACT_ADDRESS = "0xeb67046949CA250B092A9dB1B4F59C3f6E1ff3d8";
+const CONTRACT_ADDRESS = "0xeb67046949CA250B092A9dB1B4F59C3f6E1ff3d8"; // Ganti dengan alamat contract Anda
 const USDT_ADDRESS = "0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb"; // USDT Plasma Native
 
 /* ================= ABI ================= */
@@ -48,7 +48,6 @@ export default function App() {
 
   const [contract, setContract] = useState(null);
   const [usdtContract, setUsdtContract] = useState(null);
-  const [readOnlyContract, setReadOnlyContract] = useState(null);
 
   const [members, setMembers] = useState([]);
   const [filteredMembers, setFilteredMembers] = useState([]);
@@ -66,17 +65,6 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState("");
-  
-  // State untuk Gas Fee
-  const [gasPrice, setGasPrice] = useState("0");
-  const [gasEstimate, setGasEstimate] = useState("0");
-  const [estimatedGasFee, setEstimatedGasFee] = useState("0");
-  const [gasLimit, setGasLimit] = useState("0");
-  const [showGasDetails, setShowGasDetails] = useState(false);
-  const [nativeBalance, setNativeBalance] = useState("0");
-  
-  // State untuk read-only provider
-  const [isReadOnlyMode, setIsReadOnlyMode] = useState(true);
 
   /* ================= CONNECT ================= */
 
@@ -97,12 +85,10 @@ export default function App() {
       setSigner(signer);
       setAccount(accounts[0]);
       setNetwork(network);
-      setIsReadOnlyMode(false);
 
-      // Periksa apakah jaringan Plasma (Chain ID Plasma: 9745)
+      // Periksa apakah jaringan Plasma (Chain ID Plasma 9745)
       if (network.chainId !== 9745n) {
-        alert("⚠️ Silakan hubungkan ke jaringan Plasma Chain\n\nDi MetaMask pilih:\nNetwork: Plasma Chain\nRPC: https://rpc.plasmaprotocol.xyz\nChain ID: 9745");
-        // Tapi lanjutkan koneksi untuk testing
+        alert("⚠️ Silakan hubungkan ke jaringan Plasma Chain\n\nDi MetaMask pilih:\nNetwork: Plasma Chain\nRPC: https://rpc.plasmaprotocol.xyz\nChain ID: 707070");
       }
 
       const contractInstance = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
@@ -115,12 +101,6 @@ export default function App() {
       const decimals = await usdtInstance.decimals();
       setUsdtDecimals(Number(decimals));
 
-      // Load gas price dan native balance
-      await loadGasInfo(prov, accounts[0]);
-
-      // Load data user
-      await loadUserData(contractInstance, usdtInstance, accounts[0]);
-
       setLoading(false);
     } catch (error) {
       console.error("Error connecting:", error);
@@ -129,243 +109,9 @@ export default function App() {
     }
   }
 
-  /* ================= INITIALIZE READ-ONLY MODE ================= */
+  /* ================= LOAD DATA ================= */
 
-  useEffect(() => {
-    // Setup read-only provider untuk load data tanpa connect wallet
-    async function setupReadOnlyMode() {
-      try {
-        // Gunakan public RPC Plasma
-        const plasmaRPC = "https://rpc.plasmaprotocol.xyz";
-        const readOnlyProvider = new ethers.JsonRpcProvider(plasmaRPC);
-        
-        const readOnlyContract = new ethers.Contract(
-          CONTRACT_ADDRESS, 
-          CONTRACT_ABI, 
-          readOnlyProvider
-        );
-        
-        setReadOnlyContract(readOnlyContract);
-        
-        // Load data anggota tanpa perlu wallet
-        await loadMembersData(readOnlyContract);
-        
-      } catch (error) {
-        console.error("Error setting up read-only mode:", error);
-      }
-    }
-    
-    setupReadOnlyMode();
-  }, []);
-
-  /* ================= LOAD MEMBERS DATA (READ-ONLY) ================= */
-
-  async function loadMembersData(contractInstance) {
-    if (!contractInstance) return;
-    
-    try {
-      setLoading(true);
-      
-      // Load total fund
-      const fund = await contractInstance.totalFund();
-      setTotalFund(ethers.formatUnits(fund, 6)); // Default 6 decimals untuk USDT
-
-      // Load all members
-      const memberList = await contractInstance.getAllMembers();
-      const memberDetails = [];
-
-      for (let addr of memberList) {
-        try {
-          const memberData = await contractInstance.members(addr);
-          memberDetails.push({
-            address: addr,
-            name: memberData[0],
-            deposit: ethers.formatUnits(memberData[1], 6),
-            activeLoan: ethers.formatUnits(memberData[2], 6),
-            remainingLoan: ethers.formatUnits(memberData[3], 6),
-            exists: memberData[4]
-          });
-        } catch (error) {
-          console.error(`Error loading member ${addr}:`, error);
-          // Tambahkan data minimal jika error
-          memberDetails.push({
-            address: addr,
-            name: "Unknown",
-            deposit: "0",
-            activeLoan: "0",
-            remainingLoan: "0",
-            exists: false
-          });
-        }
-      }
-
-      setMembers(memberDetails);
-      setFilteredMembers(memberDetails);
-      setLoading(false);
-
-    } catch (error) {
-      console.error("Error loading members data:", error);
-      setLoading(false);
-    }
-  }
-
-  /* ================= LOAD USER DATA (SETELAH CONNECT) ================= */
-
-  async function loadUserData(contractInstance, usdtInstance, userAddress) {
-    if (!contractInstance || !usdtInstance || !userAddress) return;
-    
-    try {
-      // Load user's USDT balance
-      const balance = await usdtInstance.balanceOf(userAddress);
-      setUsdtBalance(ethers.formatUnits(balance, usdtDecimals));
-
-      // Load allowance
-      const allowance = await usdtInstance.allowance(userAddress, CONTRACT_ADDRESS);
-      setUsdtAllowance(ethers.formatUnits(allowance, usdtDecimals));
-
-      // Check if user is owner
-      const ownerAddress = await contractInstance.owner();
-      setIsOwner(ownerAddress.toLowerCase() === userAddress.toLowerCase());
-
-      // Cek apakah user adalah member dan load data
-      const memberList = await contractInstance.getAllMembers();
-      const userIsMember = memberList.some(addr => addr.toLowerCase() === userAddress.toLowerCase());
-      
-      if (userIsMember) {
-        const memberData = await contractInstance.members(userAddress);
-        setUserMemberInfo({
-          name: memberData[0],
-          deposit: ethers.formatUnits(memberData[1], usdtDecimals),
-          activeLoan: ethers.formatUnits(memberData[2], usdtDecimals),
-          remainingLoan: ethers.formatUnits(memberData[3], usdtDecimals)
-        });
-
-        const maxLoan = await contractInstance.maxLoan(userAddress);
-        setUserMaxLoan(ethers.formatUnits(maxLoan, usdtDecimals));
-      }
-
-    } catch (error) {
-      console.error("Error loading user data:", error);
-    }
-  }
-
-  /* ================= LOAD GAS INFO ================= */
-
-  async function loadGasInfo(prov, account) {
-    if (!prov || !account) return;
-    
-    try {
-      // Ambil gas price
-      const gasPriceData = await prov.getFeeData();
-      setGasPrice(ethers.formatUnits(gasPriceData.gasPrice || 0, "gwei"));
-      
-      // Ambil native balance (ETH/XPL di Plasma)
-      const balance = await prov.getBalance(account);
-      setNativeBalance(ethers.formatEther(balance));
-      
-    } catch (error) {
-      console.error("Error loading gas info:", error);
-    }
-  }
-
-  /* ================= ESTIMATE GAS FEE ================= */
-
-  async function estimateGasFee(action, amountValue) {
-    if (!contract || !usdtContract || !amountValue || !account) return;
-    
-    try {
-      const value = ethers.parseUnits(amountValue, usdtDecimals);
-      let gasEstimate;
-      let gasLimitValue;
-      
-      switch(action) {
-        case "approve":
-          gasEstimate = await usdtContract.approve.estimateGas(CONTRACT_ADDRESS, value);
-          gasLimitValue = Math.ceil(Number(gasEstimate) * 1.2); // 20% buffer
-          break;
-        
-        case "deposit":
-          gasEstimate = await contract.deposit.estimateGas(value);
-          gasLimitValue = Math.ceil(Number(gasEstimate) * 1.2);
-          break;
-        
-        case "borrow":
-          gasEstimate = await contract.borrow.estimateGas(value);
-          gasLimitValue = Math.ceil(Number(gasEstimate) * 1.2);
-          break;
-        
-        case "payInstallment":
-          gasEstimate = await contract.payInstallment.estimateGas(value);
-          gasLimitValue = Math.ceil(Number(gasEstimate) * 1.2);
-          break;
-        
-        default:
-          return;
-      }
-      
-      const gasPriceData = await provider.getFeeData();
-      const gasPriceWei = gasPriceData.gasPrice || ethers.parseUnits("1", "gwei");
-      
-      const estimatedFeeWei = gasEstimate * gasPriceWei;
-      const estimatedFeeEther = ethers.formatEther(estimatedFeeWei);
-      
-      // Format untuk display
-      const gasFeeDisplay = Number(estimatedFeeEther) < 0.0001 
-        ? "< 0.0001 XPL" 
-        : `${Number(estimatedFeeEther).toFixed(6)} XPL`;
-      
-      setGasEstimate(gasEstimate.toString());
-      setGasLimit(gasLimitValue.toString());
-      setEstimatedGasFee(gasFeeDisplay);
-      
-      return {
-        gasEstimate: gasEstimate.toString(),
-        gasLimit: gasLimitValue.toString(),
-        estimatedFee: estimatedFeeEther,
-        gasFeeDisplay
-      };
-      
-    } catch (error) {
-      console.error("Error estimating gas:", error);
-      // Fallback values
-      const fallbackGas = action === "approve" ? "60000" : "150000";
-      const gasPriceWei = ethers.parseUnits(gasPrice || "1", "gwei");
-      const estimatedFeeWei = BigInt(fallbackGas) * gasPriceWei;
-      const estimatedFeeEther = ethers.formatEther(estimatedFeeWei);
-      
-      const gasFeeDisplay = Number(estimatedFeeEther) < 0.0001 
-        ? "< 0.0001 XPL" 
-        : `${Number(estimatedFeeEther).toFixed(6)} XPL`;
-      
-      setGasEstimate(fallbackGas);
-      setGasLimit(Math.ceil(Number(fallbackGas) * 1.2).toString());
-      setEstimatedGasFee(gasFeeDisplay);
-      
-      return {
-        gasEstimate: fallbackGas,
-        gasLimit: Math.ceil(Number(fallbackGas) * 1.2).toString(),
-        estimatedFee: estimatedFeeEther,
-        gasFeeDisplay
-      };
-    }
-  }
-
-  // Update gas estimate saat amount berubah
-  useEffect(() => {
-    if (amount && contract && usdtContract && account) {
-      const timeoutId = setTimeout(async () => {
-        if (parseFloat(amount) > 0) {
-          await estimateGasFee("deposit", amount);
-        }
-      }, 500);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [amount, contract, usdtContract, account]);
-
-  /* ================= LOAD ALL DATA (SETELAH CONNECT) ================= */
-
-  async function loadAllData() {
+  async function loadData() {
     if (!contract || !account || !usdtContract) return;
 
     try {
@@ -375,16 +121,53 @@ export default function App() {
       const fund = await contract.totalFund();
       setTotalFund(ethers.formatUnits(fund, usdtDecimals));
 
-      // Load user data
-      await loadUserData(contract, usdtContract, account);
+      // Load user's USDT balance
+      const balance = await usdtContract.balanceOf(account);
+      setUsdtBalance(ethers.formatUnits(balance, usdtDecimals));
 
-      // Load members data
-      await loadMembersData(contract);
+      // Load allowance
+      const allowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
+      setUsdtAllowance(ethers.formatUnits(allowance, usdtDecimals));
 
+      // Check if user is owner
+      const ownerAddress = await contract.owner();
+      setIsOwner(ownerAddress.toLowerCase() === account.toLowerCase());
+
+      // Load all members
+      const memberList = await contract.getAllMembers();
+      const memberDetails = [];
+
+      for (let addr of memberList) {
+        const memberData = await contract.members(addr);
+        memberDetails.push({
+          address: addr,
+          name: memberData[0],
+          deposit: ethers.formatUnits(memberData[1], usdtDecimals),
+          activeLoan: ethers.formatUnits(memberData[2], usdtDecimals),
+          remainingLoan: ethers.formatUnits(memberData[3], usdtDecimals),
+          exists: memberData[4]
+        });
+
+        // Jika user adalah member ini, load maxLoan
+        if (addr.toLowerCase() === account.toLowerCase()) {
+          setUserMemberInfo({
+            name: memberData[0],
+            deposit: ethers.formatUnits(memberData[1], usdtDecimals),
+            activeLoan: ethers.formatUnits(memberData[2], usdtDecimals),
+            remainingLoan: ethers.formatUnits(memberData[3], usdtDecimals)
+          });
+
+          const maxLoan = await contract.maxLoan(addr);
+          setUserMaxLoan(ethers.formatUnits(maxLoan, usdtDecimals));
+        }
+      }
+
+      setMembers(memberDetails);
+      setFilteredMembers(memberDetails);
       setLoading(false);
 
     } catch (error) {
-      console.error("Error loading all data:", error);
+      console.error("Error loading data:", error);
       setLoading(false);
     }
   }
@@ -405,21 +188,21 @@ export default function App() {
 
   useEffect(() => {
     if (contract && account) {
-      loadAllData();
+      loadData();
       
       // Setup event listeners
       const depositFilter = contract.filters.Deposit(account);
       const loanFilter = contract.filters.Loan(account);
       const installmentFilter = contract.filters.Installment(account);
 
-      contract.on(depositFilter, loadAllData);
-      contract.on(loanFilter, loadAllData);
-      contract.on(installmentFilter, loadAllData);
+      contract.on(depositFilter, loadData);
+      contract.on(loanFilter, loadData);
+      contract.on(installmentFilter, loadData);
 
       return () => {
-        contract.off(depositFilter, loadAllData);
-        contract.off(loanFilter, loadAllData);
-        contract.off(installmentFilter, loadAllData);
+        contract.off(depositFilter, loadData);
+        contract.off(loanFilter, loadData);
+        contract.off(installmentFilter, loadData);
       };
     }
   }, [contract, account]);
@@ -427,7 +210,7 @@ export default function App() {
   /* ================= ACTIONS ================= */
 
   async function approveUSDT() {
-    if (!usdtContract || !contract || !account) return;
+    if (!usdtContract || !contract) return;
     
     try {
       setLoading(true);
@@ -442,23 +225,6 @@ export default function App() {
         value = ethers.parseUnits("1000", usdtDecimals);
       }
       
-      // Estimate gas fee untuk approve
-      const gasEstimation = await estimateGasFee("approve", amount || "1000");
-      
-      // Tampilkan konfirmasi dengan gas fee
-      const confirmApprove = window.confirm(
-        `⚠️ Konfirmasi Approve\n\n` +
-        `Jumlah: ${amount || "1000"} USDT\n` +
-        `Gas Fee: ${gasEstimation.gasFeeDisplay}\n` +
-        `Gas Limit: ${gasEstimation.gasLimit}\n\n` +
-        `Lanjutkan approve?`
-      );
-      
-      if (!confirmApprove) {
-        setLoading(false);
-        return;
-      }
-      
       // Cek allowance saat ini
       const currentAllowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
       
@@ -468,10 +234,8 @@ export default function App() {
         return;
       }
       
-      // Approve dengan amount yang dibutuhkan dan gas limit
-      const tx = await usdtContract.approve(CONTRACT_ADDRESS, value, {
-        gasLimit: gasEstimation.gasLimit
-      });
+      // Approve dengan amount yang dibutuhkan
+      const tx = await usdtContract.approve(CONTRACT_ADDRESS, value);
       setTxHash(tx.hash);
       await tx.wait();
       
@@ -479,11 +243,8 @@ export default function App() {
       const newAllowance = await usdtContract.allowance(account, CONTRACT_ADDRESS);
       setUsdtAllowance(ethers.formatUnits(newAllowance, usdtDecimals));
       
-      alert(`✅ Approve berhasil!\nAllowance: ${ethers.formatUnits(newAllowance, usdtDecimals)} USDT\nGas Used: ${gasEstimation.gasFeeDisplay}`);
+      alert(`✅ Approve berhasil!\nAllowance: ${ethers.formatUnits(newAllowance, usdtDecimals)} USDT`);
       setLoading(false);
-      
-      // Refresh gas info
-      await loadGasInfo(provider, account);
       
     } catch (error) {
       console.error("Error approving:", error);
@@ -493,30 +254,12 @@ export default function App() {
   }
 
   async function deposit() {
-    if (!amount || !contract || !usdtContract || !account) return;
+    if (!amount || !contract || !usdtContract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      
-      // Estimate gas fee untuk deposit
-      const gasEstimation = await estimateGasFee("deposit", amount);
-      
-      // Tampilkan konfirmasi dengan gas fee
-      const confirmDeposit = window.confirm(
-        `💰 Konfirmasi Deposit\n\n` +
-        `Jumlah: ${amount} USDT\n` +
-        `Fee 5%: ${(parseFloat(amount) * 0.05).toFixed(4)} USDT\n` +
-        `Net Deposit: ${(parseFloat(amount) * 0.95).toFixed(4)} USDT\n` +
-        `Gas Fee: ${gasEstimation.gasFeeDisplay}\n\n` +
-        `Lanjutkan deposit?`
-      );
-      
-      if (!confirmDeposit) {
-        setLoading(false);
-        return;
-      }
       
       // 1. Cek balance user
       const userBalance = await usdtContract.balanceOf(account);
@@ -536,20 +279,15 @@ export default function App() {
         return;
       }
       
-      // 3. Eksekusi deposit dengan gas limit
-      const tx = await contract.deposit(value, {
-        gasLimit: gasEstimation.gasLimit
-      });
+      // 3. Eksekusi deposit
+      const tx = await contract.deposit(value);
       setTxHash(tx.hash);
       await tx.wait();
       
-      alert(`✅ Deposit berhasil!\n${amount} USDT telah dideposit.\nGas Used: ${gasEstimation.gasFeeDisplay}`);
+      alert(`✅ Deposit berhasil!\n${amount} USDT telah dideposit.`);
       setAmount("");
-      loadAllData();
+      loadData();
       setLoading(false);
-      
-      // Refresh gas info
-      await loadGasInfo(provider, account);
       
     } catch (error) {
       console.error("Error depositing:", error);
@@ -561,8 +299,6 @@ export default function App() {
         alert("❌ Anda belum terdaftar sebagai member!\n\nHubungi admin untuk ditambahkan sebagai member.");
       } else if (error.message.includes("transfer amount exceeds balance")) {
         alert("❌ Saldo tidak cukup untuk melakukan deposit!");
-      } else if (error.message.includes("insufficient funds for gas")) {
-        alert("❌ Saldo native token (XPL) tidak cukup untuk gas fee!\n\nTambah XPL ke wallet Anda.");
       } else {
         alert("❌ Gagal deposit: " + error.message);
       }
@@ -571,32 +307,12 @@ export default function App() {
   }
 
   async function approveAndDeposit() {
-    if (!amount || !contract || !usdtContract || !account) return;
+    if (!amount || !contract || !usdtContract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      
-      // Estimate gas untuk approve + deposit
-      const gasApprove = await estimateGasFee("approve", amount);
-      const gasDeposit = await estimateGasFee("deposit", amount);
-      const totalGasFee = (parseFloat(gasApprove.estimatedFee) + parseFloat(gasDeposit.estimatedFee)).toFixed(6);
-      
-      // Tampilkan konfirmasi dengan total gas fee
-      const confirmAction = window.confirm(
-        `🚀 Konfirmasi Approve & Deposit\n\n` +
-        `Jumlah: ${amount} USDT\n` +
-        `Fee 5%: ${(parseFloat(amount) * 0.05).toFixed(4)} USDT\n` +
-        `Net Deposit: ${(parseFloat(amount) * 0.95).toFixed(4)} USDT\n` +
-        `Total Gas Fee: ~${totalGasFee} XPL\n\n` +
-        `Lanjutkan?`
-      );
-      
-      if (!confirmAction) {
-        setLoading(false);
-        return;
-      }
       
       // 1. Cek balance
       const userBalance = await usdtContract.balanceOf(account);
@@ -608,9 +324,7 @@ export default function App() {
       
       // 2. Approve
       alert("🚀 Melakukan approve...");
-      const approveTx = await usdtContract.approve(CONTRACT_ADDRESS, value, {
-        gasLimit: gasApprove.gasLimit
-      });
+      const approveTx = await usdtContract.approve(CONTRACT_ADDRESS, value);
       setTxHash(approveTx.hash);
       await approveTx.wait();
       
@@ -619,68 +333,36 @@ export default function App() {
       
       // 3. Deposit
       alert("✅ Approve berhasil! Melakukan deposit...");
-      const depositTx = await contract.deposit(value, {
-        gasLimit: gasDeposit.gasLimit
-      });
+      const depositTx = await contract.deposit(value);
       setTxHash(depositTx.hash);
       await depositTx.wait();
       
-      alert(`🎉 Deposit berhasil! ${amount} USDT telah dideposit.\nTotal Gas: ~${totalGasFee} XPL`);
+      alert(`🎉 Deposit berhasil! ${amount} USDT telah dideposit.`);
       setAmount("");
-      loadAllData();
+      loadData();
       setLoading(false);
-      
-      // Refresh gas info
-      await loadGasInfo(provider, account);
       
     } catch (error) {
       console.error("Error:", error);
-      if (error.message.includes("insufficient funds for gas")) {
-        alert("❌ Saldo native token (XPL) tidak cukup untuk gas fee!");
-      } else {
-        alert("❌ Gagal: " + error.message);
-      }
+      alert("❌ Gagal: " + error.message);
       setLoading(false);
     }
   }
 
   async function borrow() {
-    if (!amount || !contract || !account) return;
+    if (!amount || !contract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      
-      // Estimate gas untuk borrow
-      const gasEstimation = await estimateGasFee("borrow", amount);
-      
-      const confirmBorrow = window.confirm(
-        `📥 Konfirmasi Pinjaman\n\n` +
-        `Jumlah: ${amount} USDT\n` +
-        `Fee 5%: ${(parseFloat(amount) * 0.05).toFixed(4)} USDT\n` +
-        `Net Received: ${(parseFloat(amount) * 0.95).toFixed(4)} USDT\n` +
-        `Gas Fee: ${gasEstimation.gasFeeDisplay}\n\n` +
-        `Lanjutkan pinjaman?`
-      );
-      
-      if (!confirmBorrow) {
-        setLoading(false);
-        return;
-      }
-      
-      const tx = await contract.borrow(value, {
-        gasLimit: gasEstimation.gasLimit
-      });
+      const tx = await contract.borrow(value);
       setTxHash(tx.hash);
       await tx.wait();
       alert("✅ Pinjaman berhasil!");
       setAmount("");
-      loadAllData();
+      loadData();
       setLoading(false);
-      
-      await loadGasInfo(provider, account);
-      
     } catch (error) {
       console.error("Error borrowing:", error);
       alert("❌ Gagal pinjam: " + error.message);
@@ -689,42 +371,19 @@ export default function App() {
   }
 
   async function payInstallment() {
-    if (!amount || !contract || !account) return;
+    if (!amount || !contract) return;
     
     try {
       setLoading(true);
       setTxHash("");
       const value = ethers.parseUnits(amount, usdtDecimals);
-      
-      // Estimate gas untuk installment
-      const gasEstimation = await estimateGasFee("payInstallment", amount);
-      
-      const confirmPay = window.confirm(
-        `💳 Konfirmasi Pembayaran Cicilan\n\n` +
-        `Jumlah: ${amount} USDT\n` +
-        `Fee 5%: ${(parseFloat(amount) * 0.05).toFixed(4)} USDT\n` +
-        `Net Payment: ${(parseFloat(amount) * 0.95).toFixed(4)} USDT\n` +
-        `Gas Fee: ${gasEstimation.gasFeeDisplay}\n\n` +
-        `Lanjutkan pembayaran?`
-      );
-      
-      if (!confirmPay) {
-        setLoading(false);
-        return;
-      }
-      
-      const tx = await contract.payInstallment(value, {
-        gasLimit: gasEstimation.gasLimit
-      });
+      const tx = await contract.payInstallment(value);
       setTxHash(tx.hash);
       await tx.wait();
       alert("✅ Cicilan berhasil dibayar!");
       setAmount("");
-      loadAllData();
+      loadData();
       setLoading(false);
-      
-      await loadGasInfo(provider, account);
-      
     } catch (error) {
       console.error("Error paying installment:", error);
       alert("❌ Gagal bayar cicilan: " + error.message);
@@ -744,11 +403,8 @@ export default function App() {
       alert("✅ Member berhasil ditambahkan!");
       setNewMemberAddress("");
       setNewMemberName("");
-      loadAllData();
+      loadData();
       setLoading(false);
-      
-      await loadGasInfo(provider, account);
-      
     } catch (error) {
       console.error("Error adding member:", error);
       alert("❌ Gagal menambah member: " + error.message);
@@ -757,7 +413,7 @@ export default function App() {
   }
 
   async function clearAllowance() {
-    if (!usdtContract || !account) return;
+    if (!usdtContract) return;
     
     try {
       setLoading(true);
@@ -771,24 +427,10 @@ export default function App() {
       
       alert("✅ Allowance di-reset ke 0!");
       setLoading(false);
-      
-      await loadGasInfo(provider, account);
-      
     } catch (error) {
       console.error("Error clearing allowance:", error);
       alert("❌ Gagal reset allowance: " + error.message);
       setLoading(false);
-    }
-  }
-
-  /* ================= REFRESH DATA ================= */
-
-  async function refreshData() {
-    if (readOnlyContract) {
-      await loadMembersData(readOnlyContract);
-    }
-    if (contract && account) {
-      await loadAllData();
     }
   }
 
@@ -806,84 +448,25 @@ export default function App() {
           </p>
           
           {!account ? (
-            <div>
-              <div style={{ 
-                backgroundColor: "rgba(245, 158, 11, 0.1)", 
-                padding: 15, 
-                borderRadius: 8, 
-                marginBottom: 20,
-                border: "1px solid rgba(245, 158, 11, 0.3)"
-              }}>
-                <p style={{ color: "#f59e0b", marginBottom: 10 }}>
-                  🔍 <b>Mode View-Only</b> - Connect wallet untuk melakukan transaksi
-                </p>
-                <button 
-                  onClick={connect} 
-                  className="btn btn-primary"
-                  style={{ padding: "16px 32px", fontSize: "18px" }}
-                  disabled={loading}
-                >
-                  {loading ? "Connecting..." : "🚀 Connect Wallet"}
-                </button>
-              </div>
-              
-              {/* Contract Info */}
-              <div style={{ 
-                backgroundColor: "rgba(30, 41, 59, 0.5)", 
-                padding: 15, 
-                borderRadius: 8,
-                marginTop: 20
-              }}>
-                <p style={{ fontSize: "14px", color: "#94a3b8" }}>
-                  <b>Contract Address:</b> {CONTRACT_ADDRESS.substring(0, 10)}...{CONTRACT_ADDRESS.substring(CONTRACT_ADDRESS.length - 8)}
-                </p>
-                <p style={{ fontSize: "14px", color: "#94a3b8" }}>
-                  <b>USDT (Plasma):</b> {USDT_ADDRESS.substring(0, 10)}...{USDT_ADDRESS.substring(USDT_ADDRESS.length - 8)}
-                </p>
-              </div>
-            </div>
+            <button 
+              onClick={connect} 
+              className="btn btn-primary"
+              style={{ padding: "16px 32px", fontSize: "18px", margin: "20px auto" }}
+              disabled={loading}
+            >
+              {loading ? "Connecting..." : "🚀 Connect Wallet"}
+            </button>
           ) : (
             <div style={{ textAlign: "left" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
                 <div>
                   <p><b>👤 Wallet:</b> <span className="wallet-address">{account.substring(0, 10)}...{account.substring(account.length - 8)}</span></p>
                   <p><b>🌐 Network:</b> {network ? network.name : "Unknown"} (Chain ID: {network ? network.chainId.toString() : "N/A"})</p>
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <p><b>💰 USDT Balance:</b> <span style={{ color: "#10b981", fontWeight: "bold" }}>{usdtBalance}</span></p>
-                  <p><b>⛽ Native Balance:</b> <span style={{ color: "#7c3aed", fontWeight: "bold" }}>{nativeBalance} XPL</span></p>
+                  <p><b>✅ Allowance:</b> <span style={{ color: usdtAllowance > 0 ? "#10b981" : "#ef4444", fontWeight: "bold" }}>{usdtAllowance} USDT</span></p>
                 </div>
-              </div>
-              
-              {/* Gas Info Panel */}
-              <div className="card" style={{ marginTop: 20, background: "rgba(30, 41, 59, 0.5)", padding: 15 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
-                     onClick={() => setShowGasDetails(!showGasDetails)}>
-                  <h4 style={{ margin: 0 }}>⛽ Gas Information</h4>
-                  <span>{showGasDetails ? "▲" : "▼"}</span>
-                </div>
-                
-                {showGasDetails && (
-                  <div style={{ marginTop: 15 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 15 }}>
-                      <div>
-                        <b>Gas Price:</b> {gasPrice} Gwei
-                      </div>
-                      <div>
-                        <b>Estimated Gas:</b> {gasEstimate} units
-                      </div>
-                      <div>
-                        <b>Gas Limit:</b> {gasLimit} units
-                      </div>
-                      <div>
-                        <b>Estimated Fee:</b> <span style={{ color: "#f59e0b", fontWeight: "bold" }}>{estimatedGasFee}</span>
-                      </div>
-                    </div>
-                    <div style={{ marginTop: 10, fontSize: "12px", color: "#94a3b8" }}>
-                      💡 Gas fee dibayar dengan native token (XPL) di Plasma Chain
-                    </div>
-                  </div>
-                )}
               </div>
               
               {userMemberInfo && (
@@ -909,155 +492,113 @@ export default function App() {
             {totalFund} <span style={{ fontSize: "1rem", color: "#94a3b8" }}>USDT</span>
           </div>
           <p style={{ color: "#94a3b8" }}>Dana tersedia untuk pinjaman anggota</p>
-          <button 
-            onClick={refreshData} 
-            className="btn btn-secondary"
-            style={{ marginTop: 10, padding: "8px 16px" }}
-            disabled={loading}
-          >
-            {loading ? "⏳" : "🔄"} Refresh Data
-          </button>
         </div>
 
-        {/* TRANSACTION SECTION - HANYA TAMPIL JIKA CONNECTED */}
-        {account && (
-          <div className="card">
-            <h3>📤 Transaksi</h3>
-            
-            {/* Input Amount */}
-            <div className="input-group">
-              <label className="input-label">Jumlah USDT</label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Contoh: 0.2"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
+        {/* TRANSACTION SECTION */}
+        <div className="card">
+          <h3>📤 Transaksi</h3>
+          
+          {/* Input Amount */}
+          <div className="input-group">
+            <label className="input-label">Jumlah USDT</label>
+            <input
+              type="text"
+              className="input-field"
+              placeholder="Contoh: 0.2"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+
+          {/* Allowance Info */}
+          <div style={{ 
+            backgroundColor: "rgba(59, 130, 246, 0.1)", 
+            padding: 15, 
+            borderRadius: 10,
+            marginBottom: 20,
+            border: "1px solid rgba(59, 130, 246, 0.3)"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+              <span>Allowance Saat Ini:</span>
+              <span style={{ fontWeight: "bold", color: usdtAllowance > 0 ? "#10b981" : "#ef4444" }}>
+                {usdtAllowance} USDT
+              </span>
             </div>
-
-            {/* Allowance & Gas Info */}
-            <div style={{ 
-              backgroundColor: "rgba(59, 130, 246, 0.1)", 
-              padding: 15, 
-              borderRadius: 10,
-              marginBottom: 20,
-              border: "1px solid rgba(59, 130, 246, 0.3)"
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <span>Allowance Saat Ini:</span>
-                <span style={{ fontWeight: "bold", color: usdtAllowance > 0 ? "#10b981" : "#ef4444" }}>
-                  {usdtAllowance} USDT
-                </span>
-              </div>
-              {amount && (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", color: "#94a3b8", marginBottom: 5 }}>
-                    <span>Dibutuhkan untuk deposit:</span>
-                    <span>{amount} USDT</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", color: "#f59e0b" }}>
-                    <span>Estimated Gas Fee:</span>
-                    <span style={{ fontWeight: "bold" }}>{estimatedGasFee}</span>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Transaction Buttons */}
-            <div className="btn-group">
-              <button 
-                onClick={approveUSDT} 
-                className="btn btn-primary"
-                disabled={loading || !amount}
-              >
-                {loading ? "⏳ Processing..." : "✅ Approve USDT"}
-              </button>
-              
-              <button 
-                onClick={deposit} 
-                className="btn btn-secondary"
-                disabled={loading || !amount || usdtAllowance === "0.0"}
-              >
-                {loading ? "⏳ Processing..." : "💰 Deposit"}
-              </button>
-              
-              <button 
-                onClick={approveAndDeposit} 
-                className="btn btn-primary"
-                style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
-                disabled={loading || !amount}
-              >
-                {loading ? "⏳ Processing..." : "🚀 Approve & Deposit"}
-              </button>
-              
-              <button 
-                onClick={clearAllowance} 
-                className="btn btn-danger"
-                disabled={loading}
-              >
-                {loading ? "⏳ Processing..." : "🗑️ Reset Allowance"}
-              </button>
-            </div>
-
-            {/* Loan Buttons */}
-            <div className="btn-group" style={{ marginTop: 20 }}>
-              <button 
-                onClick={borrow} 
-                className="btn btn-warning"
-                disabled={loading || !amount}
-              >
-                {loading ? "⏳ Processing..." : "📥 Pinjam"}
-              </button>
-              
-              <button 
-                onClick={payInstallment} 
-                className="btn btn-secondary"
-                disabled={loading || !amount}
-              >
-                {loading ? "⏳ Processing..." : "💳 Bayar Cicilan"}
-              </button>
-            </div>
-
-            {/* Gas Warning */}
-            {parseFloat(nativeBalance) < 0.001 && (
-              <div style={{ 
-                marginTop: 20, 
-                padding: 10, 
-                backgroundColor: "rgba(239, 68, 68, 0.1)", 
-                borderRadius: 8,
-                border: "1px solid #ef4444"
-              }}>
-                <p style={{ color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
-                  ⚠️ <b>Saldo XPL rendah!</b> Anda membutuhkan XPL untuk gas fee. 
-                  Deposit minimum 0.01 XPL untuk transaksi.
-                </p>
-              </div>
-            )}
-
-            {/* Transaction Hash */}
-            {txHash && (
-              <div style={{ marginTop: 20, padding: 10, backgroundColor: "#1e293b", borderRadius: 8 }}>
-                <p style={{ fontSize: "12px", color: "#94a3b8", wordBreak: "break-all" }}>
-                  <b>Tx Hash:</b> {txHash}
-                </p>
-                <p style={{ fontSize: "12px", color: "#7c3aed", marginTop: 5 }}>
-                  <a 
-                    href={`https://plasmascan.to/tx/${txHash}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    style={{ color: "#7c3aed", textDecoration: "none" }}
-                  >
-                    🔍 Lihat di PlasmaScan
-                  </a>
-                </p>
+            {amount && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", color: "#94a3b8" }}>
+                <span>Dibutuhkan untuk deposit:</span>
+                <span>{amount} USDT</span>
               </div>
             )}
           </div>
-        )}
 
-        {/* ADMIN SECTION - HANYA TAMPIL JIKA CONNECTED DAN OWNER */}
-        {account && isOwner && (
+          {/* Transaction Buttons */}
+          <div className="btn-group">
+            <button 
+              onClick={approveUSDT} 
+              className="btn btn-primary"
+              disabled={loading || !amount}
+            >
+              {loading ? "⏳ Processing..." : "✅ Approve USDT"}
+            </button>
+            
+            <button 
+              onClick={deposit} 
+              className="btn btn-secondary"
+              disabled={loading || !amount || usdtAllowance === "0.0"}
+            >
+              {loading ? "⏳ Processing..." : "💰 Deposit"}
+            </button>
+            
+            <button 
+              onClick={approveAndDeposit} 
+              className="btn btn-primary"
+              style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}
+              disabled={loading || !amount}
+            >
+              {loading ? "⏳ Processing..." : "🚀 Approve & Deposit"}
+            </button>
+            
+            <button 
+              onClick={clearAllowance} 
+              className="btn btn-danger"
+              disabled={loading}
+            >
+              {loading ? "⏳ Processing..." : "🗑️ Reset Allowance"}
+            </button>
+          </div>
+
+          {/* Loan Buttons */}
+          <div className="btn-group" style={{ marginTop: 20 }}>
+            <button 
+              onClick={borrow} 
+              className="btn btn-warning"
+              disabled={loading || !amount}
+            >
+              {loading ? "⏳ Processing..." : "📥 Pinjam"}
+            </button>
+            
+            <button 
+              onClick={payInstallment} 
+              className="btn btn-secondary"
+              disabled={loading || !amount}
+            >
+              {loading ? "⏳ Processing..." : "💳 Bayar Cicilan"}
+            </button>
+          </div>
+
+          {/* Transaction Hash */}
+          {txHash && (
+            <div style={{ marginTop: 20, padding: 10, backgroundColor: "#1e293b", borderRadius: 8 }}>
+              <p style={{ fontSize: "12px", color: "#94a3b8", wordBreak: "break-all" }}>
+                <b>Tx Hash:</b> {txHash}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* ADMIN SECTION */}
+        {isOwner && (
           <div className="card admin-card">
             <h3>👑 Admin Functions</h3>
             <div style={{ display: "grid", gap: 15 }}>
@@ -1094,15 +635,10 @@ export default function App() {
           </div>
         )}
 
-        {/* MEMBERS TABLE - TAMPIL SELALU (DENGAN ATAU TANPA WALLET) */}
+        {/* MEMBERS TABLE */}
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
-            <div>
-              <h3 style={{ margin: 0 }}>👥 Daftar Anggota ({filteredMembers.length})</h3>
-              <p style={{ fontSize: "14px", color: "#94a3b8", marginTop: 5 }}>
-                {!account ? "📖 Mode view-only - Connect wallet untuk transaksi" : ""}
-              </p>
-            </div>
+            <h3 style={{ margin: 0 }}>👥 Daftar Anggota ({filteredMembers.length})</h3>
             
             {/* Search Filter */}
             <div style={{ position: "relative", width: "100%", maxWidth: 300, marginTop: 10 }}>
@@ -1157,14 +693,13 @@ export default function App() {
                     <th>Deposit (USDT)</th>
                     <th>Pinjaman Aktif (USDT)</th>
                     <th>Sisa Pinjaman (USDT)</th>
-                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredMembers.map((m, i) => (
                     <tr 
                       key={i} 
-                      className={account && m.address.toLowerCase() === account.toLowerCase() ? "highlight" : ""}
+                      className={m.address.toLowerCase() === account.toLowerCase() ? "highlight" : ""}
                     >
                       <td>{i + 1}</td>
                       <td style={{ fontWeight: "bold" }}>{m.name}</td>
@@ -1175,19 +710,6 @@ export default function App() {
                       <td align="right" style={{ color: "#f59e0b", fontWeight: "bold" }}>{m.activeLoan}</td>
                       <td align="right" style={{ color: m.remainingLoan > 0 ? "#ef4444" : "#94a3b8", fontWeight: "bold" }}>
                         {m.remainingLoan}
-                      </td>
-                      <td align="center">
-                        {account && m.address.toLowerCase() === account.toLowerCase() ? (
-                          <span style={{ 
-                            backgroundColor: "rgba(16, 185, 129, 0.2)", 
-                            color: "#10b981",
-                            padding: "4px 8px",
-                            borderRadius: 4,
-                            fontSize: "12px"
-                          }}>
-                            👤 Anda
-                          </span>
-                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -1205,14 +727,8 @@ export default function App() {
 
         {/* FOOTER */}
         <div className="footer" style={{ marginTop: 30, paddingTop: 20, borderTop: "1px solid #334155" }}>
-          <p>💡 <b>Plasma Chain Community Fund</b></p>
-          <ul style={{ fontSize: "12px", color: "#94a3b8", paddingLeft: 20 }}>
-            <li><b>Mode View-Only:</b> Lihat daftar anggota tanpa connect wallet</li>
-            <li><b>Connect Wallet:</b> Untuk melakukan transaksi (deposit, pinjam, dll)</li>
-            <li><b>Gas Fee:</b> Dibayar dengan XPL (native token Plasma)</li>
-            <li><b>Network:</b> Plasma Chain (Chain ID: 9745)</li>
-          </ul>
-          <p style={{ fontSize: "12px", color: "#94a3b8", marginTop: 10 }}>
+          <p>💡 <b>Tips:</b> Pastikan Anda terhubung ke Plasma Chain dan memiliki USDT Plasma Native</p>
+          <p style={{ fontSize: "12px", color: "#94a3b8" }}>
             Contract: {CONTRACT_ADDRESS.substring(0, 10)}...{CONTRACT_ADDRESS.substring(CONTRACT_ADDRESS.length - 8)} | 
             USDT: {USDT_ADDRESS.substring(0, 10)}...{USDT_ADDRESS.substring(USDT_ADDRESS.length - 8)}
           </p>
