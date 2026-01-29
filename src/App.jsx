@@ -705,7 +705,8 @@ export default function App() {
         <div className="card" style={{ textAlign: "center", marginBottom: 30 }}>
           <h2>💰 Community Fund – USDT on Plasma</h2>
           <p style={{ color: "#94a3b8", marginBottom: 20 }}>
-            Deposit USDT, Pinjam Dana, Kelola Komunitas - Di eksekusi dengan kode smart contract (Otomatis tanpa campur tangan manusia)<br/>
+            Deposit USDT, Pinjam Dana, Kelola Komunitas <br/>
+            <p>- Di eksekusi dengan kode smart contract (Otomatis tanpa campur tangan manusia)</p>
             <small>Gas Fee menggunakan {PLASMA_CURRENCY_SYMBOL} (Plasma XPL)</small>
           </p>
           
